@@ -1,0 +1,52 @@
+program t;
+//this tests floats
+begin
+  num n1 = 1;
+  num n2 = 2;
+
+  write "numtest:";
+  num addnums = n1 + n2;
+  write "1 + 2 should be 3";
+  write addnums;
+  num subnums = n2 - n1;
+  write "2 - 1 should be 1";
+  write subnums;
+  num mulnums = n1 * n2;
+  write "2 * 1 should be 2";
+  write mulnums;
+
+  floater f1 = 2.0;
+  floater f2 = 0.5;
+  write "floattest:";
+  floater addfloats = f1 + f2;
+  floater subfloats = f1 - f2;
+  floater mulfloats = f1 * f2;
+  write "2.0 + 0.5 should be 2.5";
+  write addfloats;
+  write "2.0 - 0.5 should be 1.5";
+  write subfloats;
+  write "2.0 * 0.5 should be 1.0";
+  write mulfloats;
+
+  write "mixedtest:";
+  floater addfloats1 = n1 + f1;
+  write "1 + 2.0 should be 3.0";
+  write addfloats1;
+  floater addfloats2 = f1 + n1;
+  write "2.0 + 1 should be 3.0";
+  write addfloats2;
+  floater subfloats1 = f1 - n1;
+  write "2.0 - 1 should be 1.0";
+  write subfloats1;
+  floater subfloats2 = n2 - f2;
+  write "2 - 0.5 should be 1.5";
+  write subfloats2;
+  floater mulfloats1 = f1 * n2;
+  write "2.0 * 2 should be 4.0";
+  write mulfloats1;
+  floater mulfloats2 = n2 * f1;
+  write "2 * 2.0 should be 4.0";
+  write mulfloats2;
+
+  floater f3 = (2.0 + 4.0);
+end.

@@ -1,0 +1,7 @@
+program f;
+  begin
+
+  num x = 4;
+  num y = 3 + -x;
+  write y;
+end.

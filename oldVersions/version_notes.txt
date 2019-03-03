@@ -1,0 +1,56 @@
+Version Notes:
+
+V2.0
+-class complete!
+-structs have been added w/ limited functionality
+-can use any num, floater, or string within them
+-num and floater can be assigned to variables or values
+-reading and writing work for struct variables as well
+
+V1.9
+-multiply by base 2 optimization complete
+
+V1.8
+-various optimization options have been added
+--constant propagation
+--constant folding
+--dead code elimination
+
+V1.7
+-floating point numbers have been added
+
+V1.6
+-procedures are now possible
+--pass by ref
+--pass by value
+
+V1.5
+-case statements
+-arraysubscripting
+-optimizations were added
+-- add/sub by 0
+-- mul by 1
+
+V1.4
+-if, else, and else if statements now work.
+
+V1.3
+-for loops are now possible within the language
+-reading in of integers now works
+
+V1.2
+-redesign of arithmetic and general assignment
+
+V1.1
+-now can compile arrays of any dimensions
+
+V1.0
+-Compiles basic programs.
+-- variable assignment
+-- writing strings
+-- basic arithmetic with +,-,*, and ^
+
+VX.1
+-Badly designed initial version.
+-Had a poorly implemented scanner.
+-New version at least works

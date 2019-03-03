@@ -1,0 +1,1696 @@
+#!/usr/bin/python
+
+# dylan's cool compiler (dcc)
+
+# (poorly) Written by Dylan Waters
+# while taking CS 5820 (undergrad compilers) at Weber State University
+# under the shaman like guidance of Dr. Robert Ball
+
+import sys
+import math
+
+# my compiler I guess, what a world
+
+# this is where the execution starts
+# check for input file argument
+if len(sys.argv) != 7:
+  print ("Usage: ./dylansCoolCompiler INPUTCOMMANDFILE addSub0Mul1OptimizationOn constantpropagationOn constantFoldingOn deadCodeEliminationOn base2MultiplyOptimizationOn")
+  sys.exit()
+
+addSub0Mul1Optimization = False
+constPropOn = False
+constFoldOn = False
+deadCodeElimOn = False
+mulBy2Optimization = False
+if(sys.argv[2] == "True" or sys.argv[2] == "False"):
+    addSub0Mul1Optimization = sys.argv[2]
+else:
+    print("Invalid option for add and subract by 0 optimization: use True or False ")
+    sys.exit()
+
+if(sys.argv[3] == "True" or sys.argv[3] == "False"):
+    constPropOn = sys.argv[3]
+else:
+    print("Invalid option for constant propagation optimization: use True or False ")
+    sys.exit()
+
+if(sys.argv[4] == "True" or sys.argv[4] == "False"):
+    constFoldOn = sys.argv[4]
+else:
+    print("Invalid option for constant folding optimization: use True or False ")
+    sys.exit()
+
+if(sys.argv[5] == "True" or sys.argv[5] == "False"):
+    deadCodeElimOn = sys.argv[5]
+else:
+    print("Invalid option for dead code elimination: use True or False ")
+    sys.exit()
+
+if(sys.argv[6] == "True" or sys.argv[6] == "False"):
+    mulBy2Optimization = sys.argv[6]
+else:
+    print("Invalid option for multiply by base 2 optimization: use True or False ")
+    sys.exit()
+
+# keyword list -- used to check reserve names and verify correct syntax
+keywords = ['begin', 'program', 'num', 'write', 'end.', ';', 'array', 'for', 'to', 'step', 'read', 'if', 'else', 'then', 'switch', 'case', 'default', 'procedure', 'string', 'floater']
+stopsymbols = [' ', '=', '^', '+', '-', '*', ';', '/', '(', ')', '[', ']', ',', '"', '{', '}', '<', '>', '!', ':']
+
+# math operators
+mathOps = {'+':1, '-':1, '*':2, '/':2, '^':3, '(':4, ')':4}
+
+### Scanner Variables
+
+# token storage
+tokens = []
+
+# says what line we're on, it will start at 1
+lineCount = 0
+
+# file to open
+instructionFile = open(sys.argv[1], 'r')
+
+# variable to determine whether or not we are reading a line that is entirely or mostly a comment
+checkingForEndOfComment = False
+
+# PART 1: SCANNER
+# basically this big ass for loop removes comments, and should add every token to a list of tokens
+for line in instructionFile:
+    # increment the line counter
+    lineCount += 1
+    # remove left & right whitespace, it doesn't seem to be necessary
+    line = line.lstrip()
+    line = line.rstrip()
+
+    # print(line)
+
+    # loop through all characters
+    i = 0
+    tokenStr = ""
+    while(i < len(line)):
+        # print(tokens)
+
+        # print("i" + str (i))
+        # print(len(line))
+        # comment loop check, this keeps looping through characters until the end of comment is found
+        if(checkingForEndOfComment == True):
+            if(line[i] == "*"):
+                if(line[i+1] == "/"):
+                    checkingForEndOfComment = False
+                    i += 2
+                    continue
+            else:
+                i += 1
+        # single line comment, break
+        elif(line[i] == "/"):
+            if(line[i+1] == "/"):
+                break
+            # multiline comment
+            elif(line[i+1] == "*"):
+                i += 2
+                checkingForEndOfComment = True
+        elif(line[i] == " "):
+            i += 1
+            continue
+
+        else:
+            # adds a token based on var
+            # tokenStr += line[i]
+            # i += 1
+            # new loop that checks for characters, goes to the end of line if there is a comment
+            while(i < len(line)):
+                if(line[i] == "/"):
+                    if(line[i+1] == "/"):
+                        i = len(line) - 1
+                # special case for .. in arrays
+                elif(line[i] == "."):
+                    # print("here sucka")
+                    # period is always at the end of files as well
+                    if(i+1 < len(line)):
+                        if(line[i+1] == "."):
+                            tokens.append(tokenStr)
+                            tokens.append("..")
+                            tokenStr = ""
+                            i += 1
+                        elif(line[i+1].isdigit):
+                            tokenStr += line[i]
+                    else:
+                        tokenStr += "."
+                        # else:
+                        #     tokenStr = ""
+                # if the char is a stop char, store the current token and the current stop char
+                elif(line[i] in stopsymbols):
+                    # case for fixing comparators
+                    if((line[i] == "<" and line[i+1] == "=") or (line[i] == ">" and line[i+1] == "=") or (line[i] == "!" and line[i+1] == "=") or (line[i] == "=" and line[i+1] == "=")):
+                        # print("got here")
+                        tokenStr += line[i]
+                        tokenStr += line[i+1]
+                        i += 2
+                    # case for " marks
+                    elif(line[i] == '"'):
+                        tokenStr = '"'
+                        i += 1
+                        while(line[i] != '"'):
+                            tokenStr += line[i]
+                            i += 1
+                            if(i >= len(line)):
+                                print('Error: missing " on line ' + str(lineCount) + ": this string is not closed: " + tokenStr)
+                                sys.exit()
+                        tokenStr += '"'
+                        i += 1
+                    # special case for subtraction, if the next char is a digit, it should be attached to that digit instead
+                    elif(line[i] == "-"):
+                        if(line[i+1].isdigit()):
+                            tokenStr += line[i]
+                            while(line[i+1].isdigit()):
+                                tokenStr += line[i+1]
+                                i += 1
+                            i += 1
+                    # print(tokenStr + " `" + line[i] + "`")
+                    if(tokenStr != ""):
+                        tokens.append(tokenStr)
+                        tokenStr = ""
+                    # don't store spaces
+                    if(line[i] != " "):
+                        # print(line[i])
+                        tokens.append(line[i])
+                    break
+                # otherwise the tokenstr just gets longer
+                else:
+                    # print(line[i])
+                    tokenStr += line[i]
+                i += 1
+
+        # appends the token string if there is one
+        if(tokenStr != ""):
+            tokens.append(tokenStr)
+            tokenStr = ""
+        i += 1
+
+# all done tokenizing, let's check out the list of tokens and make them all lowercase
+for i in range(0, len(tokens)):
+    tokens[i] = tokens[i].lower()
+    # print(tokens[i])
+
+# print("Scanning completed successfully")
+
+# PART 2: PARSER
+
+### Variables
+progName = ""
+
+validVars = []
+
+# asm lines to write
+asmLines = []
+
+# initialized data
+initializedVars = []
+initializedVarVals = []
+
+# lists for arrays and their sizes
+arrayNames = []
+arraySizes = []
+deltaValArrays = []
+relocationFactors = []
+
+# stored strings
+storedStrings = []
+
+# dictionary list for variables and their new names
+varsAndVarAliases = {}
+
+# Global vars (lol) which are used in thenewrecursiveVariableAssn function
+# used to create jump locations in asm code
+numExpJmps = 0
+
+# for exponentiation. If exponentiation occured, the result is in the RAX register, not the RDI register
+answerInrax = False
+
+# keeps tack of how many arrays have been created
+numArraysCreated = 0
+
+# to keep track of how many loops are created
+numLoopsCreated = 0
+numloopsin = 0
+endLoopStorage = []
+tempStepVar = ""
+tmpLoopVarString = ""
+
+# other loop stuff
+# new idea is to store what loop we're in this list, then remove them as we get out
+loopStack = []
+
+# if loop stuff
+numIfsCreated = 0
+numElsesCreated = 0
+# keep the end ifs here so we can pull them out as we find them
+endifStack = []
+endelseStack = []
+
+# switch & case stuff
+# switchVar = ""
+numSwitchStatements = 0
+numCaseStatements = 0
+switchStack = []
+caseStack = []
+# stores bools, to check to make sure default cases appear in every switch
+foundDefaultStack = []
+
+# procedure stuff
+procNames = []
+listOfProcVars = []
+listOfProcVarTypes = []
+
+# string stuff
+strCount = 0
+numStrCopies = 0
+strListNames = []
+strListStrs = []
+
+# floater stuff
+# "It's just a Baby Ruth"
+floatsAndFloatAliases = {}
+
+# for keeping track of first mentioned float values
+initFloats = {}
+numInitFloats = 0
+answerIsFloat = False
+
+### Functions
+
+# checks for floats
+def isFloat(s):
+    if("." in s):
+        try:
+            float(s)
+        except ValueError:
+            return False
+        return True
+    else:
+        return False
+
+# checks valid var names
+def validVarName(strToCheck):
+    validVar = True
+    if(strToCheck in keywords or strToCheck in stopsymbols):
+        validVar = False
+    elif(strToCheck[0].isalpha()):
+        for i in range(1, len(strToCheck)):
+            if(strToCheck[i].isdigit() or strToCheck[i].isalpha() or strToCheck[i] == "_"):
+                continue
+            else:
+                # print("Variable name error: variable " + strToCheck + " must only contain alpha characters, digits, or underscores")
+                validVar = False
+                # sys.exit()
+    else:
+        # print("Variable name error: variable " + strToCheck + " must begin with an alpha character")
+        validVar = False
+        # sys.exit()
+    return validVar
+
+# postfix variable assignment
+def newrecursiveVariableAssn(tokenList, i, returnType):
+    global numExpJmps
+    global answerInrax
+    global numInitFloats
+    global answerIsFloat
+    # tempStack
+    tempStack = []
+    # we need to create the postfix stack
+    postfixStack = []
+
+    while(i < len(tokenList)):
+        # print(tokenList[i])
+        # print(tempStack)
+        # print(postfixStack)
+        # print()
+        # resolves and exits on semicolon
+        if(tokenList[i] == ":" or tokenList[i] == "to" or tokenList[i] == "," or tokenList[i] == "]"):
+            break
+        if(tokenList[i] == ';'):
+            i += 1
+            break
+        elif(tokenList[i] == "("):
+            tempStack.append("(")
+            i += 1
+        elif(tokenList[i] == ")"):
+            i += 1
+            if(tempStack):
+                while(tempStack[-1] != "("):
+                    postfixStack.append(tempStack[-1])
+                    del tempStack[-1]
+                    if(not tempStack):
+                        break
+                if(tempStack):
+                    if(tempStack[-1] == "("):
+                        del tempStack[-1]
+            else:
+                print("Error: ')' found without a matching '('")
+                sys.exit()
+        elif(tokenList[i] in mathOps):
+            if(not tempStack):
+                tempStack.append(tokenList[i])
+                i += 1
+            else:
+                compVal = mathOps[tempStack[-1]]
+                if(tempStack[-1] == "("):
+                    compVal = 0
+                if(mathOps[tokenList[i]] > compVal):
+                    tempStack.append(tokenList[i])
+                    i += 1
+                else:
+                    while(mathOps[tokenList[i]] <= compVal and tempStack):
+                        postfixStack.append(tempStack[-1])
+                        del tempStack[-1]
+                        if(not tempStack):
+                            break
+                        compVal = mathOps[tempStack[-1]]
+                        if(tempStack[-1] == "("):
+                            compVal = 0
+                    tempStack.append(tokenList[i])
+                    i += 1
+        else:
+            postfixStack.append(tokenList[i])
+            i += 1
+
+    while(tempStack):
+        postfixStack.append(tempStack[-1])
+        del tempStack[-1]
+
+    # print("postFixStack:")
+    # print(postfixStack)
+
+    # now we have our post fix stack complete
+    rbxInUse = False
+    numHolder = []
+    for postfixIndex in range(0, len(postfixStack)):
+        # print(postfixStack)
+        if(postfixStack[postfixIndex] in mathOps):
+            # print(numHolder)
+            exponentiationLine = False
+            # print(numHolder)
+            operand2 = numHolder[-1]
+            del numHolder[-1]
+            operand1 = numHolder[-1]
+            del numHolder[-1]
+            if(operand1 == "rdi"):
+                # asmLines.append("mov rax, rdi\n")
+                # answerInrax = True
+                # asmLines.append("mov rdi, ra")
+                pass
+            elif(operand1.isdigit() or "-" in operand1):
+                asmLines.append("mov rdi, " + str(operand1) + "\n")
+            elif(operand1 in varsAndVarAliases):
+                # if it's in the proc
+                if(len(listOfProcVars) > 0):
+                    if(operand1 in listOfProcVars[-1]):
+                        asmLines.append("mov rdi, QWORD[" + procNames[-1] + operand1 + "]\n")
+                # print(returnType)
+                if(returnType == "float"):
+                    asmLines.append("cvtsi2sd xmm0, [" + varsAndVarAliases[operand1] + "]\n")
+                else:
+                    asmLines.append("mov rdi, QWORD[" + varsAndVarAliases[operand1] + "]\n")
+            elif(operand1 in floatsAndFloatAliases):
+                asmLines.append("movsd xmm0, [" + floatsAndFloatAliases[operand1] + "]\n")
+            elif(isFloat(operand1)):
+                foundPreviousFloat = False
+                # check to see if this value already exists
+                for fltIndex in initFloats:
+                    if(fltIndex == operand1):
+                        foundPreviousFloat = True
+                        asmLines.append("movsd xmm0, [" + initFloats[operand1] + "]\n")
+                if(foundPreviousFloat == False):
+                    # create a new float
+                    initFloats[operand1] = ("initflt" + str(numInitFloats))
+                    asmLines.append("movsd xmm0, [initflt" + str(numInitFloats) + "]\n")
+                    numInitFloats += 1
+                answerIsFloat = True
+                # asmLines.append("movsd xmm0, " + floatsAndFloatAliases )
+            operatorName = ""
+            if(postfixStack[postfixIndex] == "+"):
+                operatorName = "add"
+            elif(postfixStack[postfixIndex] == "-"):
+                operatorName = "sub"
+            elif(postfixStack[postfixIndex] == "*"):
+                operatorName = "imul"
+            elif(postfixStack[postfixIndex] == "^"):
+                exponentiationLine = True
+                # remove the last entry to asm, it will be a useless mov rdi line
+                del asmLines[-1]
+                if(operand1 == "rdi"):
+                    asmLines.append("mov rax, rdi")
+                asmLines.append("; " + str(operand1) + " ^ " + str(operand2) + "\n")
+                asmLines.append("xor rsi, rsi\n")
+                asmLines.append("mov rdi, 1\n")
+                asmLines.append("expjmptop" + str(numExpJmps) + ":\n")
+                numExpJmps += 1
+                if(operand2.isdigit() or "-" in operand2):
+                    asmLines.append("cmp rsi, " + str(operand2) + "\n")
+                elif(validVarName(operand2)):
+                    asmLines.append("cmp rsi, QWORD[" + varsAndVarAliases[operand2] + "]\n")
+                asmLines.append("jz expjmpout" + str(numExpJmps - 1) + "\n")
+                if(operand1 == "rdi"):
+                    asmLines.append("imul rdi, rax\n")
+                elif(operand1.isdigit() or "-" in operand1):
+                    asmLines.append("imul rdi, " + str(operand1) + "\n")
+                elif(validVarName(operand1)):
+                    asmLines.append("imul rdi, QWORD[" + varsAndVarAliases[operand1] + "]\n")
+                asmLines.append("inc rsi\n")
+                asmLines.append("jmp expjmptop" + str(numExpJmps - 1) + "\n")
+                asmLines.append("expjmpout" + str(numExpJmps - 1) + ":\n")
+                # move the answer to rax
+                asmLines.append("mov rax, rdi\n")
+            # these statements write code belonging to one of the operations, exponentiation is more difficult, so it is ignored
+            if(exponentiationLine):
+                exponentiationLine = False
+                answerInrax = True
+            elif(operand2.isdigit() or "-" in operand2 or operand2 == "rdi"):
+                if(operand2 == "rdi" and answerInrax):
+                    if(operand1 == "rdi"):
+                        asmLines.append(operatorName + " rax, rdi\n")
+                        asmLines.append("mov rdi, rax\n")
+                    else:
+                        asmLines.append(operatorName + " rdi, rax\n")
+                    # after the exponentiation is done, we can move the result to rbx to pull back out
+                    if(rbxInUse == True):
+                        asmLines.append("mov rax, rbx\n")
+                        rbxInUse = False
+                    else:
+                        asmLines.append("mov rbx, rdi\n")
+                        rbxInUse = True
+                    # answerInrax = False
+                else:
+                    asmLines.append(operatorName + " rdi, " + str(operand2) + "\n")
+            elif(validVarName(operand2)):
+                if(listOfProcVars and operand2 in listOfProcVars[-1]):
+                    asmLines.append(operatorName + " rdi, QWORD[" + procNames[-1] + operand2 + "]\n")
+                elif(operand2 in floatsAndFloatAliases):
+                    if(operatorName == "add"):
+                        asmLines.append("addsd xmm0, [" + floatsAndFloatAliases[operand2] + "]\n")
+                    elif(operatorName == "sub"):
+                        asmLines.append("subsd xmm0, [" + floatsAndFloatAliases[operand2] + "]\n")
+                    elif(operatorName == "imul"):
+                        asmLines.append("mulsd xmm0, [" + floatsAndFloatAliases[operand2] + "]\n")
+                elif(returnType == "float"):
+                    if(operatorName == "add"):
+                        asmLines.append("cvtsi2sd xmm1, [" + varsAndVarAliases[operand2] + "]\n")
+                        asmLines.append("addsd xmm0, xmm1\n")
+                    elif(operatorName == "sub"):
+                        asmLines.append("cvtsi2sd xmm1, [" + varsAndVarAliases[operand2] + "]\n")
+                        asmLines.append("subsd xmm0, xmm1\n")
+                    elif(operatorName == "imul"):
+                        asmLines.append("cvtsi2sd xmm1, [" + varsAndVarAliases[operand2] + "]\n")
+                        asmLines.append("mulsd xmm0, xmm1\n")
+                else:
+                    asmLines.append(operatorName + " rdi, QWORD[" + varsAndVarAliases[operand2] + "]\n")
+            elif(isFloat(operand2)):
+                foundPreviousFloat = False
+                # check to see if this value already exists
+                for fltIndex in initFloats:
+                    if(fltIndex == operand2):
+                        foundPreviousFloat = True
+                        if(operatorName == "add"):
+                            asmLines.append("addsd xmm0, [" + initFloats[operand2] + "]\n")
+                        elif(operatorName == "sub"):
+                            asmLines.append("subsd xmm0, [" + initFloats[operand2] + "]\n")
+                        elif(operatorName == "imul"):
+                            asmLines.append("mulsd xmm0, [" + initFloats[operand2] + "]\n")
+                if(foundPreviousFloat == False):
+                    # create a new float
+                    initFloats[operand2] = ("initflt" + str(numInitFloats))
+                    if(operatorName == "add"):
+                        asmLines.append("addsd xmm0, [initflt" + str(numInitFloats) + "]\n")
+                    elif(operatorName == "sub"):
+                        asmLines.append("subsd xmm0, [initflt" + str(numInitFloats) + "]\n")
+                    elif(operatorName == "imul"):
+                        asmLines.append("mulsd xmm0, [initflt" + str(numInitFloats) + "]\n")
+                    numInitFloats += 1
+                answerIsFloat = True
+            numHolder.append("rdi")
+
+        else:
+            # print("Appending: " + postfixStack[postfixIndex])
+            numHolder.append(postfixStack[postfixIndex])
+            # print("numHolder: ")
+            # print(numHolder)
+    # print(numHolder)
+    # add a line assigning the value
+    if(numHolder):
+        # print("numHolder: ")
+        # print(numHolder)
+        if(isFloat(numHolder[0])):
+            # print("got here")
+            foundPreviousFloat = False
+            # check to see if this value already exists
+            for fltIndex in initFloats:
+                if(fltIndex == numHolder[0]):
+                    foundPreviousFloat = True
+                    asmLines.append("movsd xmm0, [" + initFloats[numHolder[0]] + "]\n")
+            if(foundPreviousFloat == False):
+                # create a new float
+                initFloats[numHolder[0]] = ("initflt" + str(numInitFloats))
+                asmLines.append("movsd xmm0, [initflt" + str(numInitFloats) + "]\n")
+                numInitFloats += 1
+            answerIsFloat = True
+
+        elif(numHolder[0] != "rdi"):
+            if(numHolder[0].isdigit() or "-" in numHolder[0]):
+                asmLines.append("mov rdi, " + numHolder[0] + "\n")
+            else:
+                if(numHolder[0] in varsAndVarAliases):
+                    asmLines.append("mov rdi, QWORD[" + varsAndVarAliases[numHolder[0]] + "]\n")
+                elif(len(listOfProcVars) > 0 and numHolder[0] in listOfProcVars[-1]):
+                    # now do necessary moving of var, first we figure out the index of this var
+                    procVarIndex = 0
+                    for j in range(0, len(listOfProcVars[-1])):
+                        if(numHolder[0] == listOfProcVars[-1][j]):
+                            procVarIndex = j
+                            break
+                    asmLines.append("mov rdi, QWORD[" + procNames[-1] + numHolder[0] + "]\n")
+    answerInrax = False
+    return i
+
+def arrayCreator(arrayName, tokenList, i):
+    # print("arrayCreator called")
+    # used for determining lower bound
+    lowerBoundTbl = []
+    kValTbl = []
+    deltaTbl = []
+    while(i < len(tokenList)):
+        # print(tokenList[i])
+        if(tokenList[i].isdigit):
+            sizeDigit1 = tokenList[i]
+            lowerBoundTbl.append(sizeDigit1)
+            if(tokenList[i+1] == ".."):
+                i += 1
+                if(tokenList[i+1].isdigit):
+                    i += 1
+                    sizeDigit2 = tokenList[i]
+                    kValTbl.append(int(sizeDigit2) - int(sizeDigit1) + 1)
+                    if(tokenList[i+1] == ","):
+                        i += 2
+                        continue
+                    elif(tokenList[i+1] == "]"):
+                        i += 1
+                        if(tokenList[i+1] == ";"):
+                            # wrap up array stuff
+                            arrSizeVal = 1
+                            # print(kValTbl)
+                            for kIndex in range(0, len(kValTbl)):
+                                arrSizeVal = arrSizeVal * kValTbl[kIndex]
+                            for kIndex in range(len(kValTbl), 1, -1):
+                                # print("index " + str(kIndex))
+                                numsForDelta = kIndex
+                                tempDelta = 1
+                                while(numsForDelta != 1):
+                                    tempDelta = tempDelta * kValTbl[len(kValTbl) - numsForDelta + 1]
+                                    numsForDelta -= 1
+                                    # print("delta val: " + str(tempDelta))
+                                deltaTbl.append(tempDelta)
+                            deltaTbl.append(1)
+                            relocationFactor = 0
+                            # print("delta table " + str(len(deltaTbl)))
+                            # compute the relocation factor
+                            for relocationIndex in range(0, len(deltaTbl)):
+                                # print(relocationIndex)
+                                relocationFactor += int(lowerBoundTbl[relocationIndex]) * deltaTbl[relocationIndex]
+                                # print("relocation factor")
+                                # print(relocationFactor)
+                            # print info about the array
+                            # print("array " + arrayName)
+                            # print("k table:")
+                            # print(kValTbl)
+                            # print("size of array: " + str(arrSizeVal))
+                            # print("delta table:")
+                            # print(deltaTbl)
+                            # print("lower bound: " + str(relocationFactor))
+                            # store the array
+                            arrayNames.append(arrayName)
+                            arraySizes.append(arrSizeVal)
+                            deltaValArrays.append(deltaTbl)
+                            relocationFactors.append(relocationFactor)
+                            i += 2
+                            return i
+                        else:
+                            print("Error: missing semicolon after array " + arrayName.replace('ar', '',1))
+                            sys.exit()
+
+def arrayIndexFinder(arrayName, tokenList, i):
+    global answerInrax
+    # print(tokenList[i])
+    # find the index of the array in our symtable
+    arrayLocation = 0
+    # print(arrayName)
+    for j in range(0, len(arrayNames)):
+        if(arrayName == arrayNames[j]):
+            # print(arrayNames[j] + " at index " + str(j))
+            arrayLocation = j
+            break
+    currentDelta = 0
+    # we need to write the asm
+    indexValues = []
+    # clear out r13
+    asmLines.append("xor r13, r13\n")
+    while(i < len(tokenList)):
+        if(tokenList[i].isdigit or tokenList[i] in varsAndVarAliases or (tokenList[i].startswith("-") and tokenList[i] != "-") or tokenList[i] == "("):
+            # print(tokenList[i])
+            # print("delta array")
+            # print(deltaValArrays[arrayLocation])
+            # print("current delta index: " + str(currentDelta))
+            i = newrecursiveVariableAssn(tokenList, i, "num")
+            # print(tokenList[i])
+            asmLines.append("mov rsi, " + str(deltaValArrays[arrayLocation][currentDelta]) + "\n")
+            currentDelta += 1
+            if(answerInrax == True):
+                asmLines.append("imul rsi, rax\n")
+                answerInrax = False
+            else:
+                asmLines.append("imul rsi, rdi\n")
+            # asmLines.append("imul rsi, " + tokenList[i] + "\n")
+            asmLines.append("add r13, rsi \n")
+            if(tokenList[i] == ","):
+                i += 1
+                continue
+            elif(tokenList[i] == "]"):
+                asmLines.append("sub r13, " + str(relocationFactors[arrayLocation]) + "\n")
+                asmLines.append("imul r13, 8\n")
+                asmLines.append("add r13, " + arrayName + "\n")
+                asmLines.append("mov r12, r13 \n")
+                # now we are assigning something
+                if(tokenList[i+1] == "="):
+                    # call recursiveVariableAssn, then put the answer in the array location
+                    i += 2
+                    i = newrecursiveVariableAssn(tokenList, i, "num")
+                    # needs to move the answer into the variable
+                    if(answerInrax == True):
+                        asmLines.append("mov QWORD[r12], rax\n")
+                        answerInrax = False
+                    else:
+                        asmLines.append("mov QWORD[r12], rdi\n")
+                    return i
+                # if a semicolon, we are using the array in a write statement
+                if(tokenList[i+1] == ";"):
+                    # asmLines.append("mov rdx, rdi\n")
+                    i += 2
+                    return i
+
+# PART 2.1: source code optimizations
+
+# dead code elim stuff
+liveVarList = []
+tokensToDelete = []
+
+if(deadCodeElimOn == "True"):
+    for i in range(4, len(tokens)):
+        if(tokens[i] == "write"):
+            if(validVarName(tokens[i+1])):
+                liveVarList.append(tokens[i+1])
+        elif(tokens[i] == "procedure"):
+            if(validVarName(tokens[i+1])):
+                liveVarList.append(tokens[i+1])
+        elif(tokens[i] == "read"):
+            if(validVarName(tokens[i+1])):
+                liveVarList.append(tokens[i+1])
+        elif(tokens[i] == "for"):
+            if(validVarName(tokens[i+1])):
+                liveVarList.append(tokens[i+1])
+    # this finishes the first pass, getting vars used in writes
+    # now we check to see if any vars depend on those
+    for i in range(0, len(tokens)):
+        if(validVarName(tokens[i]) and tokens[i] in liveVarList):
+            # we found a live var
+            if(tokens[i + 1] == "="):
+                while(tokens[i] != ";"):
+                    i += 1
+                    if(validVarName(tokens[i])):
+                        liveVarList.append(tokens[i])
+    # print(liveVarList)
+    # now we have all needed vars in live var list
+    for i in range(0, len(tokens)):
+        tokensToDelete.append(0)
+
+    for i in range(4, len(tokens)):
+        if(validVarName(tokens[i]) and tokens[i] not in liveVarList):
+            # print(tokens[i])
+            tokensToDelete[i] = 1
+            if(tokens[i-1] == "num" or tokens[i-1] == "floater"):
+                tokensToDelete[i-1] = 1
+            while(tokens[i] != ";"):
+                i += 1
+                tokensToDelete[i] = 1
+            if(tokens[i] == ";"):
+                tokensToDelete[i] = 1
+    # print(tokens)
+    # print(tokensToDelete)
+
+
+    for i in range(0, len(tokensToDelete)):
+        # if(i < len(tokensToDelete)):
+        #     print(tokens[i] + ": " + str(tokensToDelete[i]))
+        if(i < len(tokensToDelete) and tokensToDelete[i] == 1):
+            del tokens[i]
+            del tokensToDelete[i]
+            if(i < len(tokensToDelete)):
+                while(tokensToDelete[i] == 1):
+                    del tokens[i]
+                    del tokensToDelete[i]
+
+    # print()
+    # for i in range(0, len(tokensToDelete)):
+    #     print(tokens[i] + ": " + str(tokensToDelete[i]))
+
+# const prop stuff
+constPropDict = {}
+
+if(constPropOn == "True"):
+    for i in range(4, len(tokens)):
+        if(validVarName(tokens[i])):
+            newPotentialPropVar = tokens[i]
+            if(tokens[i+1] == "="):
+                i += 1
+                if((tokens[i+1].isdigit() or isFloat(tokens[i+1]) ) and tokens[i + 2] == ";"):
+                    constPropDict[newPotentialPropVar] = tokens[i+1]
+    # now we have all our prop vars
+    for i in range(4, len(tokens)):
+        if(tokens[i] == "="):
+            while(tokens[i] != ";"):
+                i += 1
+                if(tokens[i] in constPropDict):
+                    tokens[i] = constPropDict[tokens[i]]
+
+# const fold stuff
+if(constFoldOn == "True"):
+    for i in range(4, len(tokens)):
+        if(i < len(tokens) and tokens[i] == "="):
+            i += 1
+            substringedExp = ""
+            countsOfTokens = 0
+            startTokenIndex = i
+            evalVersionOfExp = ""
+            while(tokens[i] != ";"):
+                if(validVarName(tokens[i])):
+                    if(substringedExp != ""):
+                        # print("exp: " + substringedExp)
+                        substringedExp = substringedExp[:-1]
+                        try:
+                            evalVersionOfExp = eval(substringedExp)
+                        except:
+                            # print(substringedExp + " could not be converted to int")
+                            evalVersionOfExp = ""
+                        # print(evalVersionOfExp)
+                        if(evalVersionOfExp != ""):
+                            for j in range(startTokenIndex, startTokenIndex+countsOfTokens - 1):
+                                del tokens[startTokenIndex]
+                            tokens.insert(startTokenIndex, str(evalVersionOfExp))
+                    substringedExp = ""
+                    # set start token to after the expression
+                    startTokenIndex = i + 2
+                    countsOfTokens -= 1
+                else:
+                    substringedExp += tokens[i]
+                    countsOfTokens += 1
+                i += 1
+            # print(substringedExp)
+            try:
+                evalVersionOfExp = eval(substringedExp)
+            except:
+                # print(substringedExp + " could not be converted to int")
+                evalVersionOfExp = ""
+            # print(evalVersionOfExp)
+            if(evalVersionOfExp != ""):
+                for j in range(startTokenIndex, startTokenIndex+countsOfTokens):
+                    del tokens[startTokenIndex]
+                tokens.insert(startTokenIndex, str(evalVersionOfExp))
+
+# print(tokens)
+# tokenTotal = ""
+# for j in range(0, len(tokens)):
+#     tokenTotal += str(tokens[j])
+#
+# print(tokenTotal)
+
+# PART 2.2 -- Parsing
+
+# now we need to check out the tokens and make sure they're all valid
+i = 0
+# print(i)
+while(i < len(tokens) ):
+    # print(tokens[i])
+    # is some sorta valid keyword
+    if(tokens[i] in keywords or tokens[i] in stopsymbols):
+        if(tokens[i] == "program" and i == 0):
+            if(validVarName(tokens[i+1])):
+                i += 1
+                newVarName = tokens[i]
+                # validVars.append(newVarName)
+                progName = newVarName
+                if(tokens[i+1] == ";"):
+                    i += 1
+                    if(tokens[i+1] == "begin"):
+                        # print("program start successful")
+                        i += 2
+                        continue
+                    else:
+                        print("Error: program is missing begin statement")
+                        sys.exit()
+                else:
+                    print("Error: missing semicolon after program name declaration")
+                    sys.exit()
+            else:
+                print("Error: " + tokens[i+1] + " is not a valid name for a program")
+                sys.exit()
+        elif(tokens[i] == "floater"):
+            if(validVarName(tokens[i+1])):
+                i += 1
+                newVarName = "f" + str(len(floatsAndFloatAliases)) + tokens[i]
+                # store this varname
+                validVars.append(tokens[i])
+                floatsAndFloatAliases[tokens[i]] = newVarName
+                # print(floatsAndFloatAliases)
+                if(tokens[i+1] == ";"):
+                    # print("creating new uninitialized var: " + newVarName)
+                    i += 2
+                    initializedVars.append(newVarName)
+                    initializedVarVals.append("null")
+                elif(tokens[i+1] == "="):
+                    i += 1
+                    if(validVarName(tokens[i+1]) or tokens[i+1].isdigit() or isFloat(tokens[i+1]) or (tokens[i+1].startswith("-") and tokens[i+1] != "-") or tokens[i + 1] == "("):
+                        # print("got here")
+                        i += 1
+                        initializedVars.append(newVarName)
+                        initializedVarVals.append("null")
+                        i =newrecursiveVariableAssn(tokens, i, "float")
+                        if(answerInrax == True):
+                            asmLines.append("mov QWORD[" + newVarName + "], rax\n")
+                            answerInrax = False
+                        else:
+                            asmLines.append("movsd QWORD[" + newVarName + "], xmm0\n")
+
+        elif(tokens[i] == "num"):
+             if(validVarName(tokens[i+1])):
+                 # print(tokens[i+1] + " is a valid var name")
+                 i += 1
+                 newVarName = "n" + str(len(validVars)) + tokens[i]
+                 # check if already declared
+                 if(tokens[i] in validVars):
+                     print("Variable name error: variable " + tokens[i] + " already declared")
+                     sys.exit()
+                 # print(newVarName)
+                 validVars.append(tokens[i])
+                 varsAndVarAliases[tokens[i]] = newVarName
+                 # if we reach a semicolon, we've found uninitialized data
+                 if(tokens[i+1] == ";"):
+                     # print("creating new uninitialized var: " + newVarName)
+                     i += 2
+                     initializedVars.append(newVarName)
+                     initializedVarVals.append("null")
+                 elif(tokens[i+1] == "="):
+                     i += 1
+                     # print("assigning new value")
+                     if(validVarName(tokens[i+1]) or tokens[i+1].isdigit() or (tokens[i+1].startswith("-") and tokens[i+1] != "-") or tokens[i + 1] == "("):
+                         i += 1
+                         initializedVars.append(newVarName)
+                         initializedVarVals.append("null")
+                         # now we need some sort of recursive function
+                         i =newrecursiveVariableAssn(tokens, i, "num")
+                         if(answerInrax == True):
+                             asmLines.append("mov QWORD[" + newVarName + "], rax\n")
+                             answerInrax = False
+                         else:
+                             asmLines.append("mov QWORD[" + newVarName + "], rdi\n")
+                     else:
+                         print("Error: math syntax error. bad assignment for variable " + tokens[i-1])
+                         sys.exit()
+                     # print(asmLines)
+                 else:
+                     print("Error: invalid num declaration for variable name " + tokens[i])
+                     sys.exit()
+             else:
+                 print("Error: invalid variable name for variable: " + tokens[i+1])
+                 sys.exit()
+        elif(tokens[i] == "string"):
+            if(validVarName(tokens[i+1])):
+                strName = "us" + str(strCount) + tokens[i+1]
+                strListNames.append(tokens[i+1])
+                strCount += 1
+                i += 1
+                if(tokens[i+1] == '='):
+                    i += 1
+                    # The string is equal to some string inside quotes
+                    if(tokens[i+1].startswith('"') and tokens[i+1].endswith('"')):
+                        strListStrs.append(tokens[i+1])
+                        i += 1
+                        if(tokens[i+1] == ";"):
+                            # all done
+                            i += 2
+                        elif(tokens[i+1] == "+"):
+                            i += 1
+                            if(tokens[i+1].startswith('"') and tokens[i+1].endswith('"')):
+                                # now we're good to start
+                                asmLines.append("mov rcx, 0\ncld \nmov rdi, us" + str(len(strListNames)-1) + strListNames[-1] + "\n")
+                                # store this string
+                                storedStrings.append(tokens[i+1])
+                                # find this new string that we stored, we need to know the index
+                                for j in range(0, len(storedStrings)):
+                                    if(tokens[i+1] == storedStrings[j]):
+                                        asmLines.append("mov rsi, s" + str(j) + "\ncopyStr" + str(numStrCopies) + ":\n")
+                                        asmLines.append("mov cl, byte[rsi]\nadd cl, 1 \nmovsb \nloop copyStr" + str(numStrCopies) + "\n")
+                                        numStrCopies += 1
+                                i += 1
+                                if(tokens[i+1] == ";"):
+                                    # all done
+                                    i += 2
+                            elif(tokens[i+1] in strListNames):
+                                asmLines.append("mov rcx, 0\ncld \nmov rdi, us" + str(len(strListNames)-1) + strListNames[-1] + "\n")
+                                for j in range(0, len(storedStrings)):
+                                    if(tokens[i+1] == storedStrings[j]):
+                                        asmLines.append("mov rsi, s" + str(j) + "\ncopyStr" + str(numStrCopies) + ":\n")
+                                        asmLines.append("mov cl, byte[rsi]\nadd cl, 1 \nmovsb \nloop copyStr" + str(numStrCopies) + "\n")
+                                        numStrCopies += 1
+                                i += 1
+                                if(tokens[i+1] == ";"):
+                                    # all done
+                                    i += 2
+                    # the string is another string var
+                    elif(tokens[i+1] in strListNames):
+                        # find the var in the string list and set it equal
+                        for j in range(0, len(strListNames)):
+                            if(tokens[i+1] == strListNames[j]):
+                                strListStrs.append(strListStrs[j])
+                        i += 1
+                        # if there's a semicolon, then we're done
+                        if(tokens[i+1] == ";"):
+                            i += 2
+                        elif(tokens[i+1] == "+"):
+                            i += 1
+                            if(tokens[i+1].startswith('"') and tokens[i+1].endswith('"')):
+                                # now we're good to start
+                                asmLines.append("mov rcx, 0\ncld \nmov rdi, us" + str(len(strListNames)-1) + strListNames[-1] + "\n")
+                                # store this string
+                                storedStrings.append(tokens[i+1])
+                                # find this new string that we stored, we need to know the index
+                                for j in range(0, len(storedStrings)):
+                                    if(tokens[i+1] == storedStrings[j]):
+                                        asmLines.append("mov rsi, s" + str(j) + "\n copyStr" + str(numStrCopies) + ":\n")
+                                        asmLines.append("mov cl, byte[rsi]\n add cl, 1 \nmovsb \nloop copyStr" + str(numStrCopies) + "\n")
+                                        numStrCopies += 1
+                                i += 1
+                                if(tokens[i+1] == ";"):
+                                    # all done
+                                    i += 2
+                            elif(tokens[i+1] in strListNames):
+                                asmLines.append("mov rcx, 0\ncld \nmov rdi, us" + str(len(strListNames)-1) + strListNames[-1] + "\n")
+                                for j in range(0, len(storedStrings)):
+                                    if(tokens[i+1] == storedStrings[j]):
+                                        asmLines.append("mov rsi, s" + str(j) + "\n copyStr" + str(numStrCopies) + ":\n")
+                                        asmLines.append("mov cl, byte[rsi]\n add cl, 1 \nmovsb \nloop copyStr" + str(numStrCopies) + "\n")
+                                        numStrCopies += 1
+                                i += 1
+                                if(tokens[i+1] == ";"):
+                                    # all done
+                                    i += 2
+        elif(tokens[i] == "write"):
+            # print("now writing line")
+            # i += 1
+            # write a string
+            if(tokens[i+1].startswith('"') and tokens[i+1].endswith('"')):
+                i += 1
+                storedStrings.append(tokens[i])
+                if(tokens[i+1] == ";"):
+                    # create entry in data
+                    i += 2
+                    asmLines.append("push rbp\n")
+                    asmLines.append("mov rdi, s" + str(len(storedStrings)-1) + "\n")
+                    asmLines.append("call printf\n")
+                    asmLines.append("pop rbp\n")
+                elif(tokens[i+1] == "+"):
+                    i += 1
+                    if(tokens[i+1].startswith('"') and tokens[i+1].endswith('"')):
+                        i += 1
+                        storedStrings.append(tokens[i])
+                    elif(tokens[i+1] in strListNames):
+                        i += 1
+                    if(tokens[i+1] == ";"):
+                        i += 2
+            # write a string
+            elif(tokens[i+1] in strListNames):
+                # find the str
+                # print(strListNames)
+                for j in range(0, len(strListNames)):
+                    # print("length of strArray: " + str(len(strListNames)))
+                    # print("index: " + str(j))
+                    if( len(strListNames) > j and tokens[i+1] == strListNames[j]):
+                        # print("found our string: " + strListNames[j])
+                        asmLines.append("push rbp\n")
+                        asmLines.append("mov rdi, us" + str(j) + tokens[i+1] + "\n")
+                        asmLines.append("call printf\n")
+                        asmLines.append("pop rbp\n")
+                        i += 1
+                        if(tokens[i+1] == ";"):
+                            i += 2
+            # write a num variable
+            elif(tokens[i+1] in varsAndVarAliases or tokens[i+1].isdigit or (tokens[i+1].startswith("-") and tokens[i+1] != "-")):
+                i += 1
+                # we are printing an array index
+                if(("ar" + tokens[i]) in arrayNames):
+                    arrayNameToPass = "ar" + tokens[i]
+                    if(tokens[i+1] == "["):
+                        i += 1
+                        if(tokens[i+1].isdigit):
+                            i += 1
+                            # this finds the index and will add the code to write the string
+                            i = arrayIndexFinder(arrayNameToPass,tokens, i)
+                            # now just write the asm to write the value,
+                            asmLines.append("push rbp\n")
+                            asmLines.append("mov rdi, numberPrinter\n")
+                            asmLines.append("mov rsi, QWORD[r12]\n")
+                            asmLines.append("call printf\n")
+                            asmLines.append("pop rbp\n")
+                elif(tokens[i] in floatsAndFloatAliases):
+                    asmLines.append("sub rsp, 8\nmov rdi, fmt\nmovsd xmm0, [" + floatsAndFloatAliases[tokens[i]] + "]\nmov rax, 1\ncall printf\nadd rsp, 8\n")
+                    if(tokens[i+1] == ";"):
+                        i += 2
+                else:
+                    i = newrecursiveVariableAssn(tokens, i, "num")
+                    if(answerInrax == True):
+                        asmLines.append("mov rsi, rax\n")
+                        answerInrax = False
+                    else:
+                        asmLines.append("mov rsi, rdi\n")
+                        asmLines.append("push rbp\n")
+                        asmLines.append("mov rdi, numberPrinter\n")
+                        asmLines.append("call printf\n")
+                        asmLines.append("pop rbp\n")
+            else:
+                print("Error: variable " + tokens[i+1] + " is an improper variable, digit, or string to write")
+                sys.exit()
+        # now it's an array, apparently can't hold var names
+        elif(tokens[i] == "array"):
+            # next token must be a valid variable
+            if(validVarName(tokens[i+1])):
+                i += 1
+                validVars.append(tokens[i])
+                # create names
+                newArrayName = "ar" + tokens[i]
+                varsAndVarAliases[tokens[i]] = newArrayName
+                numArraysCreated += 1
+                # next token must be a [
+                if(tokens[i+1] == "["):
+                    i += 2
+                    i = arrayCreator(newArrayName, tokens, i)
+                    # moves on past the semicolon if executed successfully
+        # now we're creating a for loop
+        elif(tokens[i] == "for"):
+            loopStack.append("for")
+            if(tokens[i+1] in validVars):
+                i += 1
+                tmpLoopVarString = tokens[i]
+                if(tokens[i+1] == "="):
+                    i += 2
+                    i = newrecursiveVariableAssn(tokens, i, "num")
+                    if(answerInrax == True):
+                        asmLines.append("mov QWORD[" + varsAndVarAliases[tmpLoopVarString] + "], rax\n")
+                        answerInrax = False
+                    else:
+                        asmLines.append("mov QWORD[" + varsAndVarAliases[tmpLoopVarString] + "], rdi\n")
+                    if(tokens[i] == "to"):
+                        loopNum = numLoopsCreated + numloopsin
+                        asmLines.append("loop_start" + str(loopNum) + ":\n")
+                        if(tokens[i + 1] in varsAndVarAliases):
+                            asmLines.append("mov r8, QWORD[" + varsAndVarAliases[tokens[i + 1]] + "]\n")
+                            i += 1
+                        elif(tokens[i+1].isdigit or (tokens[i+1].startswith('-') and tokens[i+1] != '-') ):
+                            asmLines.append("mov r8, " + tokens[i + 1] + "\n")
+                            i += 1
+                        else:
+                            print("Error: token " + str(tokens[i+1]) + " should be a digit or variable after 'to' in a for statement")
+                            sys.exit()
+                        # if we got here then the variable was correctly assigned
+                        asmLines.append("cmp QWORD[" + varsAndVarAliases[tmpLoopVarString] + "], r8\n")
+                        asmLines.append("jg loop_end" + str(loopNum) + "\n")
+                        if(tokens[i+1] == "step"):
+                            i += 1
+                            # if the next token is a number or variable
+                            if(tokens[i+1].isdigit or (tokens[i+1].startswith("-") and tokens[i+1] != "-") or tokens[i+1] in varsAndVarAliases):
+                                tempStepVar = tokens[i+1]
+                                i += 1
+                                if(tokens[i+1] == "do"):
+                                    i += 1
+                                    if(tokens[i+1] == '{'):
+                                        asmLines.append("; block \n")
+                                        # endLoopString is stored in endLoopStorage and then removed backwards at the end
+                                        endLoopString = "; end loop \n"
+                                        # if the step value is a variable
+                                        if(tempStepVar in varsAndVarAliases):
+                                            endLoopString += "mov r9, QWORD[" + varsAndVarAliases[tempStepVar] + "] \n"
+                                        else:
+                                            endLoopString += "mov r9, " + str(tempStepVar) + "\n"
+                                        endLoopString += "add QWORD[" + varsAndVarAliases[tmpLoopVarString] + "], r9 \n"
+                                        endLoopString += "jmp loop_start" + str(loopNum) + "\n"
+                                        endLoopString += "loop_end" + str(loopNum) + ": \n"
+                                        numloopsin += 1
+                                        endLoopStorage.append(endLoopString)
+                                        # print(endLoopStorage )
+                                        i += 2
+        # now creating an if statement
+        elif(tokens[i] == "if"):
+            loopStack.append("if")
+            numIfsCreated += 1
+            if(tokens[i+1] in varsAndVarAliases):
+                asmLines.append("mov rdi, QWORD[" + varsAndVarAliases[tokens[i+1]] + "]\n")
+                i += 1
+            elif(tokens[i+1].isdigit or (tokens[i+1].startswith("-") and tokens[i+1] != "-")):
+                asmLines.append("mov rdi, " + tokens[i+1] + "\n")
+                i += 1
+            else:
+                print("Error: " + tokens[i+1] + " should be a variable or number")
+                sys.exit()
+            # now we should have a valid initial value to compare
+            comparatorOP = ""
+            if(tokens[i+1] == "<"):
+                comparatorOP = "jg"
+                i += 1
+            elif(tokens[i+1] == "<="):
+                comparatorOP = "jge"
+                i += 1
+            elif(tokens[i+1] == ">"):
+                comparatorOP = "jl"
+                i += 1
+            elif(tokens[i+1] == ">="):
+                comparatorOP = "jle"
+                i += 1
+            elif(tokens[i+1] == "=="):
+                comparatorOP = "jnz"
+                i += 1
+            elif(tokens[i+1] == "!="):
+                comparatorOP = "jz"
+                i += 1
+            else:
+                print("Error: Missing comparator operator for if statement")
+                sys.exit()
+            # now we have our comparator
+            if(tokens[i+1] in varsAndVarAliases):
+                asmLines.append("cmp rdi, QWORD[" + varsAndVarAliases[tokens[i+1]] + "]\n")
+                i += 1
+            elif(tokens[i+1].isdigit or (tokens[i+1].startswith("-") and tokens[i+1] != "-")):
+                asmLines.append("cmp rdi, " + tokens[i+1] + "\n")
+                i += 1
+            else:
+                print("Error: " + tokens[i+1] + " should be a variable or number")
+                sys.exit()
+            # check to make sure the if statement ends correctly
+            if(tokens[i+1] != "then"):
+                print("Error: if statement not closed correctly")
+                sys.exit()
+            i += 1
+            if(tokens[i+1] != "{"):
+                print("Error: block for if statement not opened correctly")
+                sys.exit()
+            i += 2
+            # print(tokens[i])
+            # now we need our jump statement
+            asmLines.append(comparatorOP + " endif" + str(numIfsCreated) + "\n\n ;block\n")
+            endifStack.append(numIfsCreated)
+        # now we're doing a switch
+        elif(tokens[i] == "switch"):
+            loopStack.append("switch")
+            numSwitchStatements += 1
+            switchStack.append(numSwitchStatements)
+            foundDefaultStack.append(False)
+            if(tokens[i+1] == "("):
+                i += 1
+                if(tokens[i+1] in varsAndVarAliases):
+                    asmLines.append("mov r11, [" + varsAndVarAliases[tokens[i+1]] + "]\n")
+                    i += 1
+                    if(tokens[i+1] == ")"):
+                        i += 1
+                        if(tokens[i+1] == ":"):
+                            i += 1
+                            if(tokens[i+1] == "{"):
+                                i += 2
+        elif(tokens[i] == "case"):
+            if(tokens[i+1] in varsAndVarAliases or tokens[i+1].isdigit or (tokens[i+1].startswith("-") and tokens[i+1] != "-")):
+                i += 1
+                i = newrecursiveVariableAssn(tokens, i, "num")
+                # print("next token: " + tokens[i])
+                if(answerInrax == True):
+                    asmLines.append("cmp r11, rax\n")
+                    answerInrax = False
+                else:
+                    asmLines.append("cmp r11, rdi\n")
+                numCaseStatements += 1
+                loopStack.append("case")
+                caseStack.append(numCaseStatements)
+                asmLines.append("jnz endcase" + str(numCaseStatements) + "\n")
+                if(tokens[i] == ":"):
+                    if(tokens[i+1] == "{"):
+                        i += 2
+                # print("next token: " + tokens[i + 1])
+        elif(tokens[i] == "default"):
+            loopStack.append("default")
+            foundDefaultStack[-1] = True
+            if(tokens[i+1] == ":"):
+                i += 1
+                if(tokens[i+1] == "{"):
+                    i += 2
+        # now we're closing some sort of loop, if, switch, or case
+        elif(tokens[i] == "}"):
+            # print(loopStack)
+            if not loopStack:
+                print("Error: } reached without being in a loop")
+                sys.exit()
+            if(loopStack[-1] == "for"):
+                if(numloopsin > 0):
+                    # append the last end loop stuff, then delete it, this way the last for loop created is used first
+                    asmLines.append(endLoopStorage[-1])
+                    del endLoopStorage[-1]
+                    numloopsin -= 1
+                    numLoopsCreated += 1
+                    i += 1
+                    # remove for from the loopstack
+                    del loopStack[-1]
+                else:
+                    print("Error: '}' reached without being in a for loop!")
+                    sys.exit()
+            elif(loopStack[-1] == "if"):
+                # print(loopStack)
+                #if the next statement is an else, we need to add the jump to the end of the previous if block
+                if(tokens[i+1] == "else"):
+                    numElsesCreated += 1
+                    asmLines.append("jmp endelse" + str(numElsesCreated) + "\n")
+                # always attached, the end of the if
+                asmLines.append("endif" + str(endifStack[-1]) + ":\n")
+                del endifStack[-1]
+                del loopStack[-1]
+                # check for more elses and attack them
+                if loopStack:
+                    while(loopStack[-1] == "else"):
+                        asmLines.append("endelse" + str(endelseStack[-1]) + ":\n")
+                        del endelseStack[-1]
+                        del loopStack[-1]
+                        if not loopStack:
+                            break
+                # check the else again
+                if(tokens[i+1] == "else"):
+                    i += 1
+                    loopStack.append("else")
+                    endelseStack.append(numElsesCreated)
+                    if(tokens[i+1] == "{"):
+                        i += 1
+                i += 1
+            elif(loopStack[-1] == "else"):
+                asmLines.append("endelse" + str(endelseStack[-1]) + ":\n")
+                del endelseStack[-1]
+                del loopStack[-1]
+                i += 1
+            elif(loopStack[-1] == "case"):
+                # add the jump to the block before this
+                asmLines.append("jmp endswitch" + str(switchStack[-1]) + "\n")
+                # now add the end of the case statement
+                asmLines.append("endcase" + str(caseStack[-1]) + ":\n")
+                del caseStack[-1]
+                del loopStack[-1]
+                i += 1
+            elif(loopStack[-1] == "switch"):
+                # we need to make sure we have a default
+                if(foundDefaultStack[-1] == False):
+                    print("Error: default does not appear within switch statement")
+                    sys.exit()
+                asmLines.append("endswitch" + str(switchStack[-1]) + ":\n")
+                del switchStack[-1]
+                del loopStack[-1]
+                i += 1
+            elif(loopStack[-1] == "default"):
+                del loopStack[-1]
+                i += 1
+            elif(loopStack[-1] == "proc"):
+                asmLines.append("ret \n")
+                del loopStack[-1]
+                i += 1
+        elif(tokens[i] == "read"):
+            if(tokens[i+1] in varsAndVarAliases):
+                asmLines.append("\n; reading " + tokens[i+1] + "\npush rbp \nmov rsi, " + varsAndVarAliases[tokens[i+1]] + "\n")
+                asmLines.append("mov rdi, int_format \ncall scanf \npop rbp \n\n")
+                i += 1
+                if(tokens[i+1] != ";"):
+                    print("Error missing semicolon for writing into " + tokens[i])
+                    sys.exit()
+                else:
+                    i += 2
+        elif(tokens[i] == "procedure"):
+            if(validVarName(tokens[i+1])):
+                asmLines.append(tokens[i+1] + ":\n")
+                procNames.append(tokens[i+1])
+                loopStack.append("proc")
+                i += 1
+            if(tokens[i+1] == "("):
+                i += 1
+                tempProcedureVars = []
+                tempProcedureVarTypes = []
+
+                numVarsInProc = 0
+                while(tokens[i+1] != ")"):
+                    # print(tokens[i+1])
+                    if(tokens[i+1] == "num"):
+                        i += 1
+                        if(validVarName(tokens[i+1])):
+                            tempProcedureVars.append(tokens[i+1])
+                            tempProcedureVarTypes.append("v")
+                            # store each num as a new variable
+                            newVarName = procNames[-1] + tokens[i+1]
+                            if(numVarsInProc > 0):
+                                asmLines.append("mov rdi, [procbuffer + " + str(numVarsInProc * 8) + "] \n")
+                            else:
+                                asmLines.append("mov rdi, [procbuffer] \n")
+                            numVarsInProc += 1
+                            asmLines.append("mov QWORD[" + newVarName  + "], rdi \n")
+                            initializedVars.append(newVarName)
+                            initializedVarVals.append("null")
+                            i += 1
+                        elif(tokens[i+1] == "*"):
+                            i += 1
+                            if(validVarName(tokens[i+1])):
+                                tempProcedureVars.append(tokens[i+1])
+                                tempProcedureVarTypes.append("p")
+                                newVarName = procNames[-1] + tokens[i+1]
+                                asmLines.append("mov rdi, [procbuffer + " + str(numVarsInProc * 8) + "] \n")
+                                numVarsInProc += 1
+                                asmLines.append("mov QWORD[" + newVarName  + "], rdi \n")
+                                initializedVars.append(newVarName)
+                                initializedVarVals.append("null")
+                                i += 1
+                    elif(tokens[i+1] == ","):
+                        i += 1
+                # asmLines.append("pop rbp\n")
+                listOfProcVars.append(tempProcedureVars)
+                listOfProcVarTypes.append(tempProcedureVarTypes)
+                if(tokens[i+1] == ")"):
+                    i += 1
+                    if(tokens[i+1] == "{"):
+                        i += 2
+        # end of file!
+        elif(tokens[i] == "end."):
+            break
+        else:
+            print("Error: token " + tokens[i] + " is not in correct context")
+            print("Something in the following stream does not make sense: " + tokens[i-1] + " " + tokens[i] + " " + tokens[i+1])
+            sys.exit()
+    # we are calling a procedure
+    elif(tokens[i] in procNames):
+        # find the proc index
+        procIndex = 0
+        for j in range(0, len(procNames)):
+            if(procNames[j] == tokens[i]):
+                procIndex = j
+                break
+        if(tokens[i+1] == "("):
+            i += 1
+            currentVar = 0
+            bufferedPtrStr = ""
+            while(tokens[i+1] != ")"):
+                if(tokens[i+1] in varsAndVarAliases):
+                    # check if pass by value or reference
+                    if(listOfProcVarTypes[procIndex][currentVar] == "v"):
+                        if(currentVar > 0):
+                            asmLines.append("mov rdi, QWORD[" + varsAndVarAliases[tokens[i+1]] + "] \nmov [procbuffer+" + str(currentVar*8) + "], rdi \n")
+                        else:
+                            asmLines.append("mov rdi, QWORD[" + varsAndVarAliases[tokens[i+1]] + "] \nmov [procbuffer], rdi \n")
+                        i += 1
+                        currentVar += 1
+                    elif(listOfProcVarTypes[procIndex][currentVar] == "p"):
+                        if(currentVar > 0):
+                            asmLines.append("mov rdi, QWORD[" + varsAndVarAliases[tokens[i+1]] + "] \nmov [procbuffer+" + str(currentVar*8) + "], rdi \n")
+                            bufferedPtrStr += ("mov rdi, [procbuffer+" + str(currentVar*8) + "]\nmov QWORD[" + varsAndVarAliases[tokens[i+1]] + "], rdi\n")
+                        else:
+                            asmLines.append("mov rdi, QWORD[" + varsAndVarAliases[tokens[i+1]] + "] \nmov [procbuffer], rdi \n")
+                            bufferedPtrStr += ("mov rdi, [procbuffer]\nmov QWORD[" + varsAndVarAliases[tokens[i+1]] + "], rdi\n")
+                        i += 1
+                        currentVar += 1
+                elif(tokens[i+1] == ","):
+                    i += 1
+            if(tokens[i + 1] == ")"):
+                i += 1
+                if(tokens[i+1] == ";"):
+                    i += 2
+                    asmLines.append("push rbp \ncall " + procNames[procIndex] + "\npop rbp \n")
+                    asmLines.append(bufferedPtrStr)
+    # this is a local variable for a procedure
+    elif( len(listOfProcVars) > 0 and len(loopStack) > 0 and tokens[i] in listOfProcVars[-1] and loopStack[-1] == "proc"):
+        tempProcVarName = tokens[i]
+        procVarIndexLoc = 0
+        for j in range(0, len(listOfProcVars[-1])):
+            if(listOfProcVars[-1][j] == tokens[i]):
+                procVarIndexLoc = j
+                break
+        if(tokens[i+1] == "="):
+            i += 2
+            i = newrecursiveVariableAssn(tokens, i, "num")
+            # now we should have the result to be stored -- variable should be at
+            if(listOfProcVarTypes[-1][procVarIndexLoc] == "v"):
+                asmLines.append("mov QWORD[" + procNames[-1] + tempProcVarName + "], rdi\n")
+            if(listOfProcVarTypes[-1][procVarIndexLoc] == "p"):
+                asmLines.append("mov QWORD[" + procNames[-1] + tempProcVarName + "], rdi\n")
+                asmLines.append("mov [procbuffer + " + str(procVarIndexLoc * 8) + "], rdi\n")
+                # asmLines.append("mov QWORD["+ procNames[-1] + tempProcVarName + "], rdi\n")
+                # asmLines.append("mov rdi, [procbuffer + " + str((procVarIndexLoc) * 8) + "] \n")
+                # asmLines.append("mov rax, QWORD[" + procNames[-1] + tempProcVarName + "]\n")
+                # asmLines.append("mov QWORD[rdi], rax\n")
+
+    # we are assigning a variable
+    elif(tokens[i] in validVars):
+        # print("assigning value to variable " + tokens[i])
+        tmpVarString = tokens[i]
+        if(tokens[i+1] == "="):
+            i += 2
+            if(tmpVarString in floatsAndFloatAliases):
+                i = newrecursiveVariableAssn(tokens, i, "float")
+            else:
+                i = newrecursiveVariableAssn(tokens, i, "num")
+            if(answerInrax == True):
+                asmLines.append("mov QWORD[" + varsAndVarAliases[tmpVarString] + "], rax\n")
+                answerInrax = False
+            elif(tmpVarString in floatsAndFloatAliases):
+                asmLines.append("movsd [" + floatsAndFloatAliases[tmpVarString] + "], xmm0\n")
+            else:
+                asmLines.append("mov QWORD[" + varsAndVarAliases[tmpVarString] + "], rdi\n")
+        # we may be assigning an array index
+        elif(tokens[i+1] == "["):
+            # print("found an array variable")
+            # check to make sure there is an array with this name
+            checkArrayName = "ar" + tokens[i]
+            i += 1
+            # print(checkArrayName)
+            if(checkArrayName in arrayNames):
+                # print("valid name of array")
+                if(tokens[i+1].isdigit):
+                    i += 1
+                    i = arrayIndexFinder(checkArrayName, tokens, i)
+    # now we are assigning an already declared string variable
+    elif(tokens[i] in strListNames):
+        if(tokens[i+1] == "="):
+            i += 1
+            # The string is equal to some string inside quotes
+            if(tokens[i+1].startswith('"') and tokens[i+1].endswith('"')):
+                strListStrs.append(tokens[i+1])
+                i += 1
+                if(tokens[i+1] == ";"):
+                    # all done
+                    i += 2
+                elif(tokens[i+1] == "+"):
+                    i += 1
+                    if(tokens[i+1].startswith('"') and tokens[i+1].endswith('"')):
+                        # now we're good to start
+                        asmLines.append("mov rcx, 0\ncld \nmov rdi, us" + str(len(strListNames)-1) + strListNames[-1] + "\n")
+                        # store this string
+                        storedStrings.append(tokens[i+1])
+                        # find this new string that we stored, we need to know the index
+                        for j in range(0, len(storedStrings)):
+                            if(tokens[i+1] == storedStrings[j]):
+                                asmLines.append("mov rsi, s" + str(j) + "\ncopyStr" + str(numStrCopies) + ":\n")
+                                asmLines.append("mov cl, byte[rsi]\nadd cl, 1 \nmovsb \nloop copyStr" + str(numStrCopies) + "\n")
+                                numStrCopies += 1
+                        i += 1
+                        if(tokens[i+1] == ";"):
+                            # all done
+                            i += 2
+                    elif(tokens[i+1] in strListNames):
+                        asmLines.append("mov rcx, 0\ncld \nmov rdi, us" + str(len(strListNames)-1) + strListNames[-1] + "\n")
+                        for j in range(0, len(storedStrings)):
+                            if(tokens[i+1] == storedStrings[j]):
+                                asmLines.append("mov rsi, s" + str(j) + "\ncopyStr" + str(numStrCopies) + ":\n")
+                                asmLines.append("mov cl, byte[rsi]\nadd cl, 1 \nmovsb \nloop copyStr" + str(numStrCopies) + "\n")
+                                numStrCopies += 1
+                        i += 1
+                        if(tokens[i+1] == ";"):
+                            # all done
+                            i += 2
+            # the string is another string var
+            elif(tokens[i+1] in strListNames):
+                # find the var in the string list and set it equal
+                for j in range(0, len(strListNames)):
+                    if(tokens[i+1] == strListNames[j]):
+                        strListStrs.append(strListStrs[j])
+                i += 1
+                # if there's a semicolon, then we're done
+                if(tokens[i+1] == ";"):
+                    i += 2
+                elif(tokens[i+1] == "+"):
+                    i += 1
+                    if(tokens[i+1].startswith('"') and tokens[i+1].endswith('"')):
+                        # now we're good to start
+                        asmLines.append("mov rcx, 0\ncld \nmov rdi, us" + str(len(strListNames)-1) + strListNames[-1] + "\n")
+                        # store this string
+                        storedStrings.append(tokens[i+1])
+                        # find this new string that we stored, we need to know the index
+                        for j in range(0, len(storedStrings)):
+                            if(tokens[i+1] == storedStrings[j]):
+                                asmLines.append("mov rsi, s" + str(j) + "\ncopyStr" + str(numStrCopies) + ":\n")
+                                asmLines.append("mov cl, byte[rsi]\nadd cl, 1 \nmovsb \nloop copyStr" + str(numStrCopies) + "\n")
+                                numStrCopies += 1
+                        i += 1
+                        if(tokens[i+1] == ";"):
+                            # all done
+                            i += 2
+                    elif(tokens[i+1] in strListNames):
+                        asmLines.append("mov rcx, 0\ncld \nmov rdi, us" + str(len(strListNames)-1) + strListNames[-1] + "\n")
+                        for j in range(0, len(storedStrings)):
+                            if(tokens[i+1] == storedStrings[j]):
+                                asmLines.append("mov rsi, s" + str(j) + "\ncopyStr" + str(numStrCopies) + ":\n")
+                                asmLines.append("mov cl, byte[rsi]\nadd cl, 1 \nmovsb \nloop copyStr" + str(numStrCopies) + "\n")
+                                numStrCopies += 1
+                        i += 1
+                        if(tokens[i+1] == ";"):
+                            # all done
+                            i += 2
+
+    else:
+        print("Error: " + tokens[i] + " is not a keyword or variable")
+        sys.exit()
+
+# print(validVars)
+
+# print("Parsing completed successfully; no errors found")
+
+# Now we should be done parsing, we need to write the asm now after optiizing the code
+
+# Part 2.2: ASM code optimizations
+# currently optimized add/sub by 0 and mul by 1
+
+# print(asmLines)
+if(addSub0Mul1Optimization == "True"):
+    i = 0
+    while(i < len(asmLines)):
+    # for i in range(0, len(asmLines)):
+        # print(i)
+        # print(asmLines[i])
+        # if(i > len(asmLines)):
+        #     break
+        if(asmLines[i].startswith("add") and asmLines[i].endswith(" 0\n")):
+            del asmLines[i + 1]
+            del asmLines[i]
+            del asmLines[i - 1]
+            # move i back to the last deleted line
+            i -= 2
+        elif(asmLines[i].startswith("sub") and asmLines[i].endswith(" 0\n")):
+            del asmLines[i + 1]
+            del asmLines[i]
+            del asmLines[i - 1]
+            # move i back to the last deleted line
+            i -= 2
+        elif(asmLines[i].startswith("imul") and asmLines[i].endswith(" 1\n")):
+            del asmLines[i + 1]
+            del asmLines[i]
+            del asmLines[i - 1]
+            # move i back to the last deleted line
+            i -= 2
+        i += 1
+
+if(mulBy2Optimization == "True"):
+    for i in range(0, len(asmLines)):
+        if(asmLines[i].startswith("imul")):
+            # splitPotentialMulLine = asmLines[i].replace("imul","")
+            splitPotentialMulLine = asmLines[i].split(", ")
+            splitPotentialMulLine[1] = splitPotentialMulLine[1].replace("\n","")
+            # print(splitPotentialMulLine[1])
+
+            if(splitPotentialMulLine[1].isdigit()):
+                base2Value = math.log2(int(splitPotentialMulLine[1]))
+                # print(base2Value)
+                if(base2Value % 1.0 == 0):
+                    asmLines[i] = asmLines[i].replace("imul","shl")
+                    asmLines[i] = asmLines[i].replace(splitPotentialMulLine[1], str(int(base2Value)))
+                    # print(asmLines[i])
+
+# Part 3: Writing to files
+
+# find the end of procedures
+endOfProcsLine = 0
+for i in range(0, len(asmLines)):
+    if("ret" in asmLines[i]):
+        endOfProcsLine = i
+
+# print(endOfProcsLine)
+if(endOfProcsLine == 0):
+    asmLines.insert(0, "afterprocs: \n")
+else:
+    asmLines.insert(endOfProcsLine+1, "afterprocs: \n")
+
+# open the asm file
+asmNameStr = progName + ".asm"
+asmFile = open(asmNameStr, 'w')
+
+# every file needs these
+asmFile.write("GLOBAL main\n")
+asmFile.write("extern printf\n")
+asmFile.write("extern scanf\n")
+asmFile.write("extern exit\n")
+asmFile.write("\n")
+
+# initializedVars
+asmFile.write("\nsection .data\n")
+for i in range(0, len(initializedVars)):
+    # adds vars with initial values
+    if(initializedVarVals[i] != "null"):
+        asmFile.write(initializedVars[i] + " dq " + initializedVarVals[i] + "\n")
+# add strings from write statements or undeclard
+for i in range(0, len(storedStrings)):
+    asmFile.write("s" + str(i) + " db " + storedStrings[i] + ",0x0d,0x0a,0\n")
+# add user defined strings
+for i in range(0, len(strListNames)):
+    asmFile.write("us" + str(i) + strListNames[i] + " db " + strListStrs[i] + ",0x0d,0x0a,0\n")
+# add float values
+for i in initFloats:
+    asmFile.write(initFloats[i] + ": dq " + i + "\n")
+asmFile.write(" fmt: db \"%f\",10,0 \n")
+
+# add number printer
+asmFile.write('numberPrinter: db' + ' "%ld" ' + ', 10, 0\n')
+
+asmFile.write('int_format	db "%i", 0\n')
+
+# uninitializedVars
+asmFile.write("\nsection .bss\nprocbuffer resq 1;\nstrCombiner resq 128\n")
+for i in range(0, len(initializedVars)):
+    if(initializedVarVals[i] == "null"):
+        asmFile.write(initializedVars[i] + " resq 1;\n")
+
+# arrays
+for i in range(0, len(arrayNames)):
+    asmFile.write(arrayNames[i] + " resb " + str(arraySizes[i] * 8) + "\n")
+
+# actual codestuffs
+asmFile.write("\nsection .code\n")
+asmFile.write("\tmain:\n")
+asmFile.write("jmp afterprocs\n")
+for i in range(0, len(asmLines)):
+    # print(asmLines[i])
+    asmFile.write(asmLines[i])
+
+asmFile.write("\n; exit\n")
+asmFile.write("mov	rax, 0\n")
+asmFile.write("call 	exit;\n")
+
+# print("writing to file completed successfully; program successfully compiled")
+print(asmNameStr)
+# print(deltaValArrays)

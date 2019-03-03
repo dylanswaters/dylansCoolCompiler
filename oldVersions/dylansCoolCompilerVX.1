@@ -1,0 +1,137 @@
+#!/usr/bin/python
+
+import sys
+
+# my compiler I guess, what a world
+
+# check for input file argument
+if len(sys.argv) != 2:
+  print ("Usage: ./multistateparser INPUTCOMMANDFILE")
+  exit (1)
+
+# program name to determine names of output files
+programName = ""
+
+# variable storage
+varNames = []
+startingVarValues = []
+
+# temporary line holder
+lines = []
+
+# errorLine holder, append to this whenever an error comes up
+errorLines = []
+
+# says what line we're on, it will start at 1
+lineCount = 0
+
+# file to open
+instructionFile = open(sys.argv[1], 'r')
+
+# variable to determine whether or not we are reading a line that is entirely or mostly a comment
+checkingForEndOfComment = 0
+
+for line in instructionFile:
+    # increment the line counter
+    lineCount += 1
+    # remove left & right whitespace, it doesn't seem to be necessary
+    line = line.lstrip()
+    line = line.rstrip()
+    # check for multiLineComments
+    if(checkingForEndOfComment == 1):
+        if(line.endswith("*/")):
+            checkingForEndOfComment = 0
+            continue
+        elif("*/" in line):
+            checkingForEndOfComment = 0
+            lineSplit = line.split("*/")
+            # remove any text before the split
+            line = lineSplit[1]
+            continue
+        # the comment continues more lines
+        else:
+            continue
+    # ignore single line comments
+    elif(line[0] == "/" and line[1] == "/"):
+        continue
+    # check to make sure the first line is correct
+    if(lineCount == 1):
+        lineSplit = line.split(" ")
+        # starts with the word program
+        if(lineSplit[0] != "program"):
+            errorLines.append("Error on line " + str(lineCount))
+            errorLines.append("Instruction set must begin with program")
+        # has a valid name of the program
+        elif(lineSplit[1][0].isdigit()):
+            errorLines.append("Error on line " + str(lineCount))
+            errorLines.append("Name of program must not begin with a digit")
+        # this line is terminated
+        elif not(lineSplit[1].endswith(";")):
+            errorLines.append("Error on line " + str(lineCount))
+            errorLines.append("program statement must be terminated by a semicolon")
+        else:
+            programName = lineSplit[1].replace(";", "")
+    if(lineCount == 2):
+        if(line != "begin"):
+            errorLines.append("Error on line " + str(lineCount))
+            errorLines.append("program must have begin statement")
+        else:
+            lines.append(line)
+    else:
+        # comment check
+        if("/*" in line):
+            lineSplit = line.split("/*")
+            line = lineSplit[0]
+            # after we finish processing this line, we'll ignore text until the end of the comment is found
+            checkingForEndOfComment = 1
+        # check for one line comments on the ends of strings, strip those away
+        if("//" in line):
+            lineSplit = line.split("//")
+            line = lineSplit[0]
+        # now we start doing generalized stuff
+        if(len(line) > 3):
+            # the next line has to do with number assignment
+            if(line[0] == 'n' and line[1] == 'u' and line[2] == 'm'):
+                lines.append(line)
+                currentlyAssigningVariable = False
+                for i in range(3, len(line)):
+                    # ignore whitespace
+                    if(line[i] == " " and i == 4):
+
+                        continue
+                    if(line[i] == "=" and currentlyAssigningVariable == True):
+                        pass
+                        # now we are assigning a variable
+                    # if it's not a space, we need to see if the string is in the variable table
+                    if(i == 3 and line[i] != "=" and line[i] != " "):
+                        pass
+                        # check if it's in the variable table
+
+            # this line has to do with writing out
+            elif(line[0] == 'w' and line[1] == 'r' and line[2] == 'i' and line[3] == 't' and line[4] == 'e'):
+                lines.append(line)
+                # now we now we need to create a variable equal to the string in between the ""
+                if('"' in line):
+                    pass
+                for i in range(5, len(line)):
+                    if(line[i] == " "):
+                        continue
+            elif(line[0] == 'e' and line[1] == 'n' and line[2] == 'd' and line[3] == '.'):
+                lines.append(line)
+                # this marks the end of the file, now we can break
+                break
+
+# after running through the program we are ready to output stuff
+if(programName != ""):
+    errFileStr = programName + ".err"
+    errorFile = open(errFileStr, 'w')
+    for i in range(0, len(errorLines)):
+        errorFile.write(errorLines[i])
+    if(len(errorLines) == 0):
+        errorFile.write("No errors generated, good job!\n")
+
+for i in range(0, len(lines)):
+    print(lines[i])
+
+for i in range(0, len(errorLines)):
+    print(errorLines[i])

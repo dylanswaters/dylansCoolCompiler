@@ -1,0 +1,38 @@
+#!/usr/bin/bash
+
+# check for single argument
+if [ $# -eq 0 ]
+  then
+    echo "Usage: dcc fileToCompile"
+    exit 1
+fi
+
+# send file to compiler
+COMPILEDFILE="$(./dylansCoolCompiler $1 False False False False False)"
+
+case $COMPILEDFILE in
+    # check for spaces; indicates an error
+    *\ * )
+      echo $COMPILEDFILE
+      exit 1
+      ;;
+    * )
+      # pass the file to nasm
+      nasm -f elf64 $COMPILEDFILE -o run.o
+      #compile the nasm file
+      gcc -no-pie run.o -o run
+
+      # cleanup
+      rm $COMPILEDFILE
+      rm run.o
+
+      # run the executable
+      ./run
+
+      # cleanup the executable
+      rm run
+
+      # exit cleanly
+      exit 0
+      ;;
+esac

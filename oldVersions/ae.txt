@@ -1,0 +1,15 @@
+program SampleAE;
+	begin
+		num X = 3;
+		num Y = 4;
+		num Z = 5;
+		num result = X * Y * Z;
+		write "ae.txt:";
+		write result;
+		result = 3 ^ X + (67 - 34) - 77 * 2 ^ X;
+		write result;
+		result = 3 ^ Y + (67 - 34) - 77 * 2 ^ Y;
+		write result;
+		result = 3 ^ Y + (67 - 34) - 77 * 2 ^ Y * -1;
+		write result;
+	end.
