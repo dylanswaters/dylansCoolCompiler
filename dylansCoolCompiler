@@ -3,8 +3,7 @@
 # dylan's cool compiler (dcc)
 
 # (poorly) Written by Dylan Waters
-# while taking CS 5820 (undergrad compilers) at Weber State University
-# under the shaman like guidance of Dr. Robert Ball
+# with assistance from Dr. Robert Ball at Weber State University
 
 import sys
 import math
